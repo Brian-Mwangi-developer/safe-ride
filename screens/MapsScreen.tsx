@@ -1,78 +1,29 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    Dimensions,
+    ActivityIndicator, Dimensions,
     StatusBar,
     Text,
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { Driver, driverService } from '../services/driverService';
 
 const { width, height } = Dimensions.get('window');
 
-// Real Nairobi coordinates for drivers
+// Driver location type for map display
 interface DriverLocation {
-    id: string;
+    id: number;
     name: string;
     vehicleReg: string;
     latitude: number;
     longitude: number;
     status: 'active' | 'idle' | 'offline';
+    phoneNumber: string;
 }
-
-const DRIVER_LOCATIONS: DriverLocation[] = [
-    {
-        id: '1',
-        name: 'John Kamau',
-        vehicleReg: 'KBA 123X',
-        latitude: -1.2864,  // Westlands
-        longitude: 36.8172,
-        status: 'active',
-    },
-    {
-        id: '2',
-        name: 'Peter Omondi',
-        vehicleReg: 'KCA 456Y',
-        latitude: -1.2921,  // CBD
-        longitude: 36.8219,
-        status: 'active',
-    },
-    {
-        id: '3',
-        name: 'Samuel Kiptoo',
-        vehicleReg: 'KDD 789Z',
-        latitude: -1.2634,  // Parklands
-        longitude: 36.8178,
-        status: 'idle',
-    },
-    {
-        id: '4',
-        name: 'James Mwangi',
-        vehicleReg: 'KBQ 555T',
-        latitude: -1.2177,  // Garden City
-        longitude: 36.8849,
-        status: 'active',
-    },
-    {
-        id: '5',
-        name: 'Mary Wanjiku',
-        vehicleReg: 'KCB 789M',
-        latitude: -1.1867,  // Kasarani
-        longitude: 36.8983,
-        status: 'active',
-    },
-    {
-        id: '6',
-        name: 'David Otieno',
-        vehicleReg: 'KDA 456N',
-        latitude: -1.0532,  // Near Thika
-        longitude: 37.0612,
-        status: 'active',
-    },
-];
 
 // Route from Nairobi CBD to Thika (simplified waypoints along Thika Road)
 const NAIROBI_TO_THIKA_ROUTE = [
@@ -98,6 +49,44 @@ const MapsScreen: React.FC<MapsScreenProps> = ({ userRole: _userRole = 'operator
     const mapRef = useRef<MapView>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedDriver, setSelectedDriver] = useState<DriverLocation | null>(null);
+    const [drivers, setDrivers] = useState<DriverLocation[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Convert backend Driver to DriverLocation
+    const convertToDriverLocation = (driver: Driver): DriverLocation => {
+        const isActive = driver.latitude !== 0 || driver.longitude !== 0;
+        return {
+            id: driver.id,
+            name: driver.name,
+            vehicleReg: driver.carReg,
+            latitude: driver.latitude || -1.2921, // Default to Nairobi CBD if no location
+            longitude: driver.longitude || 36.8219,
+            status: isActive ? 'active' : 'offline',
+            phoneNumber: driver.phoneNumber,
+        };
+    };
+
+    const fetchDrivers = useCallback(async () => {
+        try {
+            const fetchedDrivers = await driverService.getDrivers();
+            // Only show drivers with valid locations
+            const driversWithLocation = fetchedDrivers
+                .filter(d => d.latitude !== 0 || d.longitude !== 0)
+                .map(convertToDriverLocation);
+            setDrivers(driversWithLocation);
+        } catch (error) {
+            console.error('Error fetching drivers for map:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchDrivers();
+        // Refresh every 30 seconds
+        const interval = setInterval(fetchDrivers, 30000);
+        return () => clearInterval(interval);
+    }, [fetchDrivers]);
 
     // Initial region centered on Nairobi
     const initialRegion: Region = {
@@ -158,10 +147,20 @@ const MapsScreen: React.FC<MapsScreenProps> = ({ userRole: _userRole = 'operator
         });
     };
 
-    const filteredDrivers = DRIVER_LOCATIONS.filter(driver =>
+    const filteredDrivers = drivers.filter(driver =>
         driver.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         driver.vehicleReg.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    // Show loading state
+    if (isLoading) {
+        return (
+            <View className="flex-1 bg-gray-50 items-center justify-center">
+                <ActivityIndicator size="large" color="#3B82F6" />
+                <Text className="text-gray-600 mt-4">Loading map...</Text>
+            </View>
+        );
+    }
 
     return (
         <View className="flex-1 bg-gray-50">

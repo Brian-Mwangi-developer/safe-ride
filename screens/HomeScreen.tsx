@@ -1,8 +1,9 @@
-import React from 'react';
-import { ScrollView, StatusBar, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { RefreshControl, ScrollView, StatusBar, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, G, Path, Rect } from 'react-native-svg';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { Driver, driverService } from '../services/driverService';
 
 // Dashboard Card Component
 const DashboardCard = ({ title, value, icon, color }: {
@@ -40,16 +41,167 @@ const LogoIcon = () => (
 interface HomeScreenProps {
     userRole?: 'operator' | 'driver';
     onRoleChange?: (role: 'operator' | 'driver') => void;
+    driverData?: Driver | null;
+    onLogout?: () => void;
 }
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ userRole = 'operator', onRoleChange }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({
+    userRole = 'operator',
+    onRoleChange,
+    driverData,
+    onLogout,
+}) => {
     const insets = useSafeAreaInsets();
+    const [stats, setStats] = useState({
+        totalDrivers: 0,
+        activeDrivers: 0,
+        pendingDrivers: 0,
+    });
+    const [isRefreshing, setIsRefreshing] = useState(false);
+
+    const fetchStats = useCallback(async () => {
+        try {
+            const drivers = await driverService.getDrivers();
+            const active = drivers.filter(d => d.latitude !== 0 || d.longitude !== 0);
+            setStats({
+                totalDrivers: drivers.length,
+                activeDrivers: active.length,
+                pendingDrivers: drivers.length - active.length,
+            });
+        } catch (error) {
+            console.error('Error fetching stats:', error);
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (userRole === 'operator') {
+            fetchStats();
+        }
+    }, [userRole, fetchStats]);
+
+    const onRefresh = useCallback(() => {
+        setIsRefreshing(true);
+        fetchStats();
+    }, [fetchStats]);
 
     const handleRoleToggle = () => {
         const newRole = userRole === 'operator' ? 'driver' : 'operator';
         onRoleChange?.(newRole);
     };
 
+    // Render Driver Home Screen
+    if (userRole === 'driver' && driverData) {
+        return (
+            <View className="flex-1 bg-gray-50">
+                <StatusBar barStyle="dark-content" backgroundColor="#F9FAFB" />
+
+                {/* Header */}
+                <View
+                    className="bg-white border-b border-gray-200 px-6 pb-4"
+                    style={{ paddingTop: insets.top + 16 }}
+                >
+                    <View className="flex-row items-center justify-between mb-2">
+                        <View className="flex-row items-center">
+                            <LogoIcon />
+                            <View className="ml-3">
+                                <Text className="text-2xl font-bold text-gray-900">SafeRide</Text>
+                                <Text className="text-sm text-gray-600">Driver Dashboard</Text>
+                            </View>
+                        </View>
+                        <TouchableOpacity
+                            onPress={onLogout}
+                            className="bg-red-100 px-4 py-2 rounded-full flex-row items-center"
+                        >
+                            <Icon name="log-out-outline" size={16} color="#EF4444" />
+                            <Text className="text-red-600 font-semibold text-sm ml-1">
+                                Logout
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+                    <View className="px-4 py-6">
+                        {/* Welcome Section */}
+                        <View className="mb-6">
+                            <Text className="text-3xl font-bold text-gray-900 mb-2">
+                                Hello, {driverData.name.split(' ')[0]}! 👋
+                            </Text>
+                            <Text className="text-gray-600 text-base">
+                                Your location is being shared with your operator
+                            </Text>
+                        </View>
+
+                        {/* Driver Info Card */}
+                        <View className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm mb-6">
+                            <View className="flex-row items-center mb-4">
+                                <View className="bg-green-100 rounded-full p-3">
+                                    <Icon name="checkmark-circle" size={32} color="#10B981" />
+                                </View>
+                                <View className="ml-4">
+                                    <Text className="text-lg font-bold text-gray-900">Verified Driver</Text>
+                                    <Text className="text-gray-600">Your account is active</Text>
+                                </View>
+                            </View>
+
+                            <View className="border-t border-gray-100 pt-4 space-y-3">
+                                <View className="flex-row items-center">
+                                    <Icon name="person" size={20} color="#6B7280" />
+                                    <Text className="text-gray-700 ml-3">{driverData.name}</Text>
+                                </View>
+                                <View className="flex-row items-center">
+                                    <Icon name="car" size={20} color="#6B7280" />
+                                    <Text className="text-gray-700 ml-3">{driverData.carReg}</Text>
+                                </View>
+                                <View className="flex-row items-center">
+                                    <Icon name="call" size={20} color="#6B7280" />
+                                    <Text className="text-gray-700 ml-3">{driverData.phoneNumber}</Text>
+                                </View>
+                            </View>
+                        </View>
+
+                        {/* Location Status */}
+                        <View className="bg-blue-50 border border-blue-200 rounded-2xl p-5 mb-6">
+                            <View className="flex-row items-center">
+                                <View className="bg-blue-500 rounded-full p-3">
+                                    <Icon name="location" size={24} color="white" />
+                                </View>
+                                <View className="ml-4 flex-1">
+                                    <Text className="text-blue-800 font-semibold">Location Sharing Active</Text>
+                                    <Text className="text-blue-600 text-sm">
+                                        Your operator can see your real-time location
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+
+                        {/* Quick Stats for Driver */}
+                        <View className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm">
+                            <Text className="text-lg font-bold text-gray-900 mb-4">Today's Summary</Text>
+                            <View className="flex-row">
+                                <View className="flex-1 items-center">
+                                    <Text className="text-3xl font-bold text-blue-500">0</Text>
+                                    <Text className="text-gray-600 text-sm">Trips</Text>
+                                </View>
+                                <View className="flex-1 items-center border-l border-r border-gray-200">
+                                    <Text className="text-3xl font-bold text-green-500">0</Text>
+                                    <Text className="text-gray-600 text-sm">Hours</Text>
+                                </View>
+                                <View className="flex-1 items-center">
+                                    <Text className="text-3xl font-bold text-purple-500">0</Text>
+                                    <Text className="text-gray-600 text-sm">KM</Text>
+                                </View>
+                            </View>
+                        </View>
+                    </View>
+                </ScrollView>
+            </View>
+        );
+    }
+
+    // Operator Home Screen
     return (
         <View className="flex-1 bg-gray-50">
             <StatusBar barStyle="dark-content" backgroundColor="#F9FAFB" />
@@ -79,7 +231,18 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ userRole = 'operator', onRoleCh
                 </View>
             </View>
 
-            <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+            <ScrollView
+                className="flex-1"
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={isRefreshing}
+                        onRefresh={onRefresh}
+                        colors={['#3B82F6']}
+                        tintColor="#3B82F6"
+                    />
+                }
+            >
                 <View className="px-4 py-6">
                     {/* Welcome Section */}
                     <View className="mb-6">
@@ -95,13 +258,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ userRole = 'operator', onRoleCh
                     <View className="flex-row mb-6">
                         <DashboardCard
                             title="Total Drivers"
-                            value="24"
+                            value={stats.totalDrivers.toString()}
                             icon="people"
                             color="bg-blue-500"
                         />
                         <DashboardCard
-                            title="Active Now"
-                            value="18"
+                            title="Verified"
+                            value={stats.activeDrivers.toString()}
                             icon="checkmark-circle"
                             color="bg-green-500"
                         />
@@ -109,16 +272,16 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ userRole = 'operator', onRoleCh
 
                     <View className="flex-row mb-6">
                         <DashboardCard
-                            title="Total Vehicles"
-                            value="32"
-                            icon="bus"
-                            color="bg-purple-500"
+                            title="Pending"
+                            value={stats.pendingDrivers.toString()}
+                            icon="time"
+                            color="bg-orange-500"
                         />
                         <DashboardCard
                             title="On Route"
-                            value="15"
+                            value={stats.activeDrivers.toString()}
                             icon="navigation"
-                            color="bg-orange-500"
+                            color="bg-purple-500"
                         />
                     </View>
 
